@@ -1,8 +1,13 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
+
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+
 import { AuthModule } from './auth/auth.module.js';
+import { AuthenticationGuard } from './auth/guards/authentication.guard.js';
+
 import { CatalogModule } from './catalog/catalog.module.js';
 import { InventoryModule } from './inventory/inventory.module.js';
 import { CartModule } from './cart/cart.module.js';
@@ -12,19 +17,23 @@ import { FulfillmentModule } from './fulfillment/fulfillment.module.js';
 import { RefundsModule } from './refunds/refunds.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { AuditModule } from './audit/audit.module.js';
+import { ConfigModule } from '@nestjs/config';
 
+ConfigModule.forRoot({ isGlobal: true });
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com,
-    // then run `npx @nestjs/observe link` to write your key pair into .env.
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+
     ObserveModule.forRoot({
       appKey: process.env.OBSERVE_APP_KEY ?? 'YOUR_APP_KEY',
       appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',
       serviceId: 'api',
     }),
+
     AuthModule,
     CatalogModule,
     InventoryModule,
@@ -36,7 +45,15 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     NotificationsModule,
     AuditModule,
   ],
+
   controllers: [AppController],
-  providers: [AppService],
+
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: AuthenticationGuard,
+    },
+  ],
 })
 export class AppModule {}
