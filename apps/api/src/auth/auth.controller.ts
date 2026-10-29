@@ -16,7 +16,9 @@ import { RolesGuard } from './guards/roles.guard.js';
 import { VendorOwnershipGuard } from './guards/vendor-ownership.guard.js';
 import type { AuthenticatedRequest } from './types/authenticated-request.js';
 import { UserRole } from './types/user-role.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -26,14 +28,14 @@ export class AuthController {
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }
-
+  @ApiBearerAuth('access-token')
   @Get('me')
   me(@Req() request: AuthenticatedRequest) {
     return {
       user: request.user,
     };
   }
-
+  @ApiBearerAuth('access-token')
   @Get('admin')
   @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
@@ -43,12 +45,7 @@ export class AuthController {
     };
   }
 
-  /*
-   * Temporary authorization demonstration endpoint.
-   *
-   * Catalog/inventory resources will consume the same
-   * ownership guard as those modules are implemented.
-   */
+  @ApiBearerAuth('access-token')
   @Get('vendors/:vendorId')
   @Roles(UserRole.VENDOR_STAFF, UserRole.ADMIN)
   @UseGuards(RolesGuard, VendorOwnershipGuard)

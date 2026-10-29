@@ -18,6 +18,7 @@ import { RefundsModule } from './refunds/refunds.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { ConfigModule } from '@nestjs/config';
+import { DatabaseModule } from './database/database.module.js';
 
 ConfigModule.forRoot({ isGlobal: true });
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -44,6 +45,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RefundsModule,
     NotificationsModule,
     AuditModule,
+    DatabaseModule,
   ],
 
   controllers: [AppController],
