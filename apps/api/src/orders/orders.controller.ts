@@ -46,7 +46,18 @@ export class OrdersController {
 
     return this.ordersService.findAllForCustomer(customerId);
   }
+  @Post(':orderId/cancel')
+  @ApiOperation({
+    summary: 'Cancel a pending order and release its stock reservation',
+  })
+  cancel(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+  ) {
+    const customerId = this.getCustomerId(request);
 
+    return this.ordersService.cancelOrder(customerId, orderId);
+  }
   @Get(':orderId')
   @ApiOperation({
     summary: 'Get customer order details',
