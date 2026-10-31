@@ -7,13 +7,15 @@ import { InventoryService } from '../inventory/inventory.service.js';
 export class SeedService implements OnApplicationBootstrap {
   constructor(
     private readonly catalogService: CatalogService,
+
     private readonly inventoryService: InventoryService,
   ) {}
 
-  onApplicationBootstrap(): void {
-    this.seed();
+  async onApplicationBootstrap(): Promise<void> {
+    await this.seed();
   }
-  private seedProduct(
+
+  private async seedProduct(
     vendorId: string,
     productData: {
       name: string;
@@ -24,8 +26,8 @@ export class SeedService implements OnApplicationBootstrap {
         price: number;
       }[];
     },
-  ): void {
-    const existingProducts = this.catalogService.findAll({
+  ): Promise<void> {
+    const existingProducts = await this.catalogService.findAll({
       page: '1',
       limit: '50',
     });
@@ -39,20 +41,19 @@ export class SeedService implements OnApplicationBootstrap {
       return;
     }
 
-    const product = this.catalogService.create(vendorId, productData);
+    const product = await this.catalogService.create(vendorId, productData);
 
     for (const sku of product.skus) {
-      this.inventoryService.create(vendorId, {
+      await this.inventoryService.create(vendorId, {
         skuId: sku.id,
         sku: sku.sku,
         quantity: 100,
       });
     }
   }
-  private seed(): void {
-    console.log('🌱 DAY 72 SEED SERVICE IS RUNNING');
 
-    this.seedProduct('vendor-a', {
+  private async seed(): Promise<void> {
+    await this.seedProduct('vendor-a', {
       name: 'Classic Cotton T-Shirt',
       description: 'Premium cotton everyday T-shirt',
       skus: [
@@ -69,7 +70,7 @@ export class SeedService implements OnApplicationBootstrap {
       ],
     });
 
-    this.seedProduct('vendor-a', {
+    await this.seedProduct('vendor-a', {
       name: 'Slim Fit Denim',
       description: 'Classic slim fit denim jeans',
       skus: [
@@ -81,7 +82,7 @@ export class SeedService implements OnApplicationBootstrap {
       ],
     });
 
-    this.seedProduct('vendor-b', {
+    await this.seedProduct('vendor-b', {
       name: 'Running Sneakers',
       description: 'Lightweight everyday running sneakers',
       skus: [

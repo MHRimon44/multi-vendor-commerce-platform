@@ -17,10 +17,11 @@ import { FulfillmentModule } from './fulfillment/fulfillment.module.js';
 import { RefundsModule } from './refunds/refunds.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { AuditModule } from './audit/audit.module.js';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module.js';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { createTypeOrmConfig } from './database/typeorm.config.js';
 
-ConfigModule.forRoot({ isGlobal: true });
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
@@ -28,7 +29,12 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
 
+      useFactory: (configService: ConfigService) =>
+        createTypeOrmConfig(configService),
+    }),
     ObserveModule.forRoot({
       appKey: process.env.OBSERVE_APP_KEY ?? 'YOUR_APP_KEY',
       appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',

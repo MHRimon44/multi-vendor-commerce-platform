@@ -3,89 +3,101 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { ILike, Repository } from 'typeorm';
+
+import { ProductEntity } from '../database/entities/product.entity.js';
+import { ProductSkuEntity } from '../database/entities/product-sku.entity.js';
 
 import { CatalogQueryDto } from './dto/catalog-query.dto.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
-import { Product } from './types/product.js';
-import { ProductSku } from './types/product-sku.js';
 
 @Injectable()
 export class CatalogService {
-  private readonly products: Product[] = [];
+  constructor(
+    @InjectRepository(ProductEntity)
+    private readonly productRepository: Repository<ProductEntity>,
 
-  create(vendorId: string, dto: CreateProductDto): Product {
-    this.ensureSkuUniqueness(dto.skus.map((item) => item.sku));
+    @InjectRepository(ProductSkuEntity)
+    private readonly skuRepository: Repository<ProductSkuEntity>,
+  ) {}
 
-    const now = new Date().toISOString();
-    const productId = randomUUID();
+  async create(
+    vendorId: string,
+    dto: CreateProductDto,
+  ): Promise<ProductEntity> {
+    await this.ensureSkuUniqueness(dto.skus.map((item) => item.sku));
 
-    const skus: ProductSku[] = dto.skus.map((item) => ({
-      id: randomUUID(),
-      productId,
-      sku: item.sku,
-      name: item.name,
-      price: item.price,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    }));
-
-    const product: Product = {
-      id: productId,
+    const product = this.productRepository.create({
       vendorId,
       name: dto.name,
       description: dto.description ?? '',
       active: true,
-      createdAt: now,
-      updatedAt: now,
-      skus,
-    };
 
-    this.products.push(product);
+      skus: dto.skus.map((item) =>
+        this.skuRepository.create({
+          sku: item.sku,
+          name: item.name,
+          price: item.price,
+          active: true,
+        }),
+      ),
+    });
 
-    return product;
+    return this.productRepository.save(product);
   }
 
-  findAll(query: CatalogQueryDto) {
+  async findAll(query: CatalogQueryDto) {
     const page = Math.max(Number(query.page ?? 1), 1);
 
     const requestedLimit = Number(query.limit ?? 10);
 
     const limit = Math.min(Math.max(requestedLimit, 1), 50);
 
-    let products = [...this.products];
+    const sortBy = query.sortBy ?? 'createdAt';
+
+    const sortOrder = query.sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    const queryBuilder = this.productRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.skus', 'sku')
+      .where('product.active = :active', {
+        active: true,
+      });
 
     if (query.vendorId) {
-      products = products.filter(
-        (product) => product.vendorId === query.vendorId,
-      );
+      queryBuilder.andWhere('product.vendorId = :vendorId', {
+        vendorId: query.vendorId,
+      });
     }
 
     if (query.search) {
-      const search = query.search.toLowerCase();
-
-      products = products.filter(
-        (product) =>
-          product.name.toLowerCase().includes(search) ||
-          product.description.toLowerCase().includes(search) ||
-          product.skus.some((sku) => sku.sku.toLowerCase().includes(search)),
+      queryBuilder.andWhere(
+        `(
+          LOWER(product.name)
+            LIKE LOWER(:search)
+          OR
+          LOWER(product.description)
+            LIKE LOWER(:search)
+          OR
+          LOWER(sku.sku)
+            LIKE LOWER(:search)
+        )`,
+        {
+          search: `%${query.search}%`,
+        },
       );
     }
 
-    const sortBy = query.sortBy ?? 'createdAt';
-    const direction = query.sortOrder === 'asc' ? 1 : -1;
+    queryBuilder.orderBy(`product.${sortBy}`, sortOrder);
 
-    products.sort((a, b) => {
-      return a[sortBy].localeCompare(b[sortBy]) * direction;
-    });
+    queryBuilder.skip((page - 1) * limit).take(limit);
 
-    const total = products.length;
-    const start = (page - 1) * limit;
+    const [data, total] = await queryBuilder.getManyAndCount();
 
     return {
-      data: products.slice(start, start + limit),
+      data,
       meta: {
         page,
         limit,
@@ -95,8 +107,16 @@ export class CatalogService {
     };
   }
 
-  findOne(id: string): Product {
-    const product = this.products.find((item) => item.id === id);
+  async findOne(id: string): Promise<ProductEntity> {
+    const product = await this.productRepository.findOne({
+      where: {
+        id,
+        active: true,
+      },
+      relations: {
+        skus: true,
+      },
+    });
 
     if (!product) {
       throw new NotFoundException('Product not found');
@@ -105,29 +125,36 @@ export class CatalogService {
     return product;
   }
 
-  update(id: string, vendorId: string, dto: UpdateProductDto): Product {
-    const product = this.findOne(id);
+  async update(
+    id: string,
+    vendorId: string,
+    dto: UpdateProductDto,
+  ): Promise<ProductEntity> {
+    const product = await this.findOne(id);
 
     if (product.vendorId !== vendorId) {
       throw new NotFoundException('Product not found');
     }
 
     if (dto.skus) {
-      this.ensureSkuUniqueness(
+      await this.ensureSkuUniqueness(
         dto.skus.map((item) => item.sku),
-        id,
+        product.id,
       );
 
-      product.skus = dto.skus.map((item) => ({
-        id: randomUUID(),
+      await this.skuRepository.delete({
         productId: product.id,
-        sku: item.sku,
-        name: item.name,
-        price: item.price,
-        active: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }));
+      });
+
+      product.skus = dto.skus.map((item) =>
+        this.skuRepository.create({
+          productId: product.id,
+          sku: item.sku,
+          name: item.name,
+          price: item.price,
+          active: true,
+        }),
+      );
     }
 
     if (dto.name !== undefined) {
@@ -138,41 +165,59 @@ export class CatalogService {
       product.description = dto.description;
     }
 
-    product.updatedAt = new Date().toISOString();
-
-    return product;
+    return this.productRepository.save(product);
   }
 
-  remove(id: string, vendorId: string): void {
-    const product = this.findOne(id);
+  async remove(id: string, vendorId: string): Promise<void> {
+    const product = await this.findOne(id);
 
     if (product.vendorId !== vendorId) {
       throw new NotFoundException('Product not found');
     }
 
     product.active = false;
-    product.updatedAt = new Date().toISOString();
+
+    await this.productRepository.save(product);
   }
 
-  private ensureSkuUniqueness(
+  async findSku(skuId: string): Promise<ProductSkuEntity> {
+    const sku = await this.skuRepository.findOne({
+      where: {
+        id: skuId,
+        active: true,
+      },
+      relations: {
+        product: true,
+      },
+    });
+
+    if (!sku) {
+      throw new NotFoundException('SKU not found');
+    }
+
+    return sku;
+  }
+
+  private async ensureSkuUniqueness(
     incomingSkus: string[],
     excludedProductId?: string,
-  ): void {
+  ): Promise<void> {
     const normalized = incomingSkus.map((sku) => sku.trim().toLowerCase());
 
     if (new Set(normalized).size !== normalized.length) {
       throw new BadRequestException('SKU must be unique');
     }
 
-    const existingSkus = this.products
-      .filter((product) => product.id !== excludedProductId)
-      .flatMap((product) => product.skus)
-      .map((sku) => sku.sku.trim().toLowerCase());
+    for (const sku of incomingSkus) {
+      const existing = await this.skuRepository.findOne({
+        where: {
+          sku: ILike(sku.trim()),
+        },
+      });
 
-    const duplicate = normalized.some((sku) => existingSkus.includes(sku));
-
-    if (duplicate) {
-      throw new BadRequestException('SKU already exists');
+      if (existing && existing.productId !== excludedProductId) {
+        throw new BadRequestException(`SKU already exists: ${sku}`);
+      }
     }
   }
 }

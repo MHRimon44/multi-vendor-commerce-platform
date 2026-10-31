@@ -94,13 +94,16 @@ export class CatalogController {
     summary: 'Deactivate an owned product',
   })
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string, @Req() request: AuthenticatedRequest): void {
+  async remove(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<void> {
     const vendorId = request.user?.vendorId;
 
     if (!vendorId) {
       throw new Error('Authenticated vendor is missing vendorId');
     }
 
-    this.catalogService.remove(id, vendorId);
+    await this.catalogService.remove(id, vendorId);
   }
 }

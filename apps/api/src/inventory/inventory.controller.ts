@@ -5,7 +5,6 @@ import {
   Param,
   Patch,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -34,8 +33,10 @@ export class InventoryController {
     summary: 'Create inventory for a SKU',
   })
   create(
-    @Req() request: AuthenticatedRequest,
-    @Body() dto: CreateInventoryDto,
+    @Req()
+    request: AuthenticatedRequest,
+    @Body()
+    dto: CreateInventoryDto,
   ) {
     const vendorId = this.getVendorId(request);
 
@@ -46,7 +47,10 @@ export class InventoryController {
   @ApiOperation({
     summary: 'List inventory for current vendor',
   })
-  findAll(@Req() request: AuthenticatedRequest) {
+  findAll(
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
     const vendorId = this.getVendorId(request);
 
     return this.inventoryService.findAll(vendorId);
@@ -56,8 +60,14 @@ export class InventoryController {
   @ApiOperation({
     summary: 'Get an inventory record',
   })
-  findOne(@Param('id') id: string) {
-    return this.inventoryService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
+    const vendorId = this.getVendorId(request);
+
+    return this.inventoryService.findOne(id, vendorId);
   }
 
   @Patch(':id/adjust')
@@ -66,8 +76,10 @@ export class InventoryController {
   })
   adjust(
     @Param('id') id: string,
-    @Req() request: AuthenticatedRequest,
-    @Body() dto: AdjustStockDto,
+    @Req()
+    request: AuthenticatedRequest,
+    @Body()
+    dto: AdjustStockDto,
   ) {
     const vendorId = this.getVendorId(request);
 
@@ -78,7 +90,11 @@ export class InventoryController {
   @ApiOperation({
     summary: 'Get stock adjustment history',
   })
-  getHistory(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+  getHistory(
+    @Param('id') id: string,
+    @Req()
+    request: AuthenticatedRequest,
+  ) {
     const vendorId = this.getVendorId(request);
 
     return this.inventoryService.getHistory(id, vendorId);

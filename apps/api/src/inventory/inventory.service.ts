@@ -3,61 +3,79 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import { InventoryAdjustmentEntity } from '../database/entities/inventory-adjustment.entity.js';
+import { InventoryEntity } from '../database/entities/inventory.entity.js';
 
 import { AdjustStockDto } from './dto/adjust-stock.dto.js';
 import { CreateInventoryDto } from './dto/create-inventory.dto.js';
 
-import { InventoryAdjustment } from './types/inventory-adjustment.js';
-import { InventoryRecord } from './types/inventory-record.js';
-
 @Injectable()
 export class InventoryService {
-  private readonly inventories: InventoryRecord[] = [];
+  constructor(
+    @InjectRepository(InventoryEntity)
+    private readonly inventoryRepository: Repository<InventoryEntity>,
 
-  private readonly adjustments: InventoryAdjustment[] = [];
+    @InjectRepository(InventoryAdjustmentEntity)
+    private readonly adjustmentRepository: Repository<InventoryAdjustmentEntity>,
+  ) {}
 
-  create(vendorId: string, dto: CreateInventoryDto) {
+  async create(vendorId: string, dto: CreateInventoryDto) {
     if (dto.quantity < 0) {
       throw new BadRequestException('Initial quantity cannot be negative');
     }
 
-    const existingInventory = this.inventories.find(
-      (inventory) => inventory.skuId === dto.skuId,
-    );
+    const existingInventory = await this.inventoryRepository.findOne({
+      where: {
+        skuId: dto.skuId,
+      },
+    });
 
     if (existingInventory) {
       throw new BadRequestException('Inventory already exists for this SKU');
     }
 
-    const now = new Date().toISOString();
-
-    const inventory: InventoryRecord = {
-      id: randomUUID(),
+    const inventory = this.inventoryRepository.create({
       vendorId,
       skuId: dto.skuId,
       sku: dto.sku,
       quantity: dto.quantity,
       reservedQuantity: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    });
 
-    this.inventories.push(inventory);
+    const savedInventory = await this.inventoryRepository.save(inventory);
 
-    return this.withAvailability(inventory);
+    return this.withAvailability(savedInventory);
   }
 
-  findAll(vendorId?: string) {
-    const inventories = vendorId
-      ? this.inventories.filter((inventory) => inventory.vendorId === vendorId)
-      : this.inventories;
+  async findAll(vendorId?: string) {
+    const inventories = await this.inventoryRepository.find({
+      where: vendorId
+        ? {
+            vendorId,
+          }
+        : undefined,
+      order: {
+        createdAt: 'DESC',
+      },
+    });
 
     return inventories.map((inventory) => this.withAvailability(inventory));
   }
 
-  findOne(id: string) {
-    const inventory = this.inventories.find((item) => item.id === id);
+  async findOne(id: string, vendorId?: string) {
+    const inventory = await this.inventoryRepository.findOne({
+      where: vendorId
+        ? {
+            id,
+            vendorId,
+          }
+        : {
+            id,
+          },
+    });
 
     if (!inventory) {
       throw new NotFoundException('Inventory record not found');
@@ -66,10 +84,29 @@ export class InventoryService {
     return this.withAvailability(inventory);
   }
 
-  adjust(id: string, vendorId: string, dto: AdjustStockDto) {
-    const inventory = this.inventories.find((item) => item.id === id);
+  async findBySkuId(skuId: string) {
+    const inventory = await this.inventoryRepository.findOne({
+      where: {
+        skuId,
+      },
+    });
 
-    if (!inventory || inventory.vendorId !== vendorId) {
+    if (!inventory) {
+      throw new NotFoundException('Inventory record not found');
+    }
+
+    return this.withAvailability(inventory);
+  }
+
+  async adjust(id: string, vendorId: string, dto: AdjustStockDto) {
+    const inventory = await this.inventoryRepository.findOne({
+      where: {
+        id,
+        vendorId,
+      },
+    });
+
+    if (!inventory) {
       throw new NotFoundException('Inventory record not found');
     }
 
@@ -96,45 +133,60 @@ export class InventoryService {
     }
 
     inventory.quantity = quantityAfter;
-    inventory.updatedAt = new Date().toISOString();
 
-    const adjustment: InventoryAdjustment = {
-      id: randomUUID(),
-      inventoryId: inventory.id,
+    const savedInventory = await this.inventoryRepository.save(inventory);
+
+    const adjustment = this.adjustmentRepository.create({
+      inventoryId: savedInventory.id,
       vendorId,
-      skuId: inventory.skuId,
+      skuId: savedInventory.skuId,
       change: dto.change,
       quantityBefore,
       quantityAfter,
       reason: dto.reason.trim(),
-      createdAt: new Date().toISOString(),
-    };
+    });
 
-    this.adjustments.push(adjustment);
+    const savedAdjustment = await this.adjustmentRepository.save(adjustment);
 
     return {
-      inventory: this.withAvailability(inventory),
-      adjustment,
+      inventory: this.withAvailability(savedInventory),
+      adjustment: savedAdjustment,
     };
   }
 
-  getHistory(id: string, vendorId: string) {
-    const inventory = this.inventories.find((item) => item.id === id);
+  async getHistory(id: string, vendorId: string) {
+    const inventory = await this.inventoryRepository.findOne({
+      where: {
+        id,
+        vendorId,
+      },
+    });
 
-    if (!inventory || inventory.vendorId !== vendorId) {
+    if (!inventory) {
       throw new NotFoundException('Inventory record not found');
     }
 
-    return this.adjustments
-      .filter((adjustment) => adjustment.inventoryId === id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return this.adjustmentRepository.find({
+      where: {
+        inventoryId: id,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
   }
 
-  private withAvailability(inventory: InventoryRecord) {
+  private withAvailability(inventory: InventoryEntity) {
     return {
-      ...inventory,
-
+      id: inventory.id,
+      vendorId: inventory.vendorId,
+      skuId: inventory.skuId,
+      sku: inventory.sku,
+      quantity: inventory.quantity,
+      reservedQuantity: inventory.reservedQuantity,
       availableQuantity: inventory.quantity - inventory.reservedQuantity,
+      createdAt: inventory.createdAt,
+      updatedAt: inventory.updatedAt,
     };
   }
 }
